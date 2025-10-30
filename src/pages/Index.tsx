@@ -99,6 +99,12 @@ const Index = () => {
   useEffect(() => {
     if (user) {
       document.documentElement.classList.add('dark');
+      localStorage.setItem('gdestore_user', JSON.stringify(user));
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
       loadGames();
       loadUserGames();
       loadFrames();
@@ -106,7 +112,7 @@ const Index = () => {
         loadAdminData();
       }
     }
-  }, [user]);
+  }, [user?.id]);
 
   const changeLanguage = (lang: Language) => {
     setLanguage(lang);
@@ -224,15 +230,26 @@ const Index = () => {
     setActiveTab('home');
   };
 
-  const handleEngineSelection = (engine: 'gdevelop' | 'other') => {
+  const handleEngineSelection = async (engine: 'gdevelop' | 'other') => {
     if (engine === 'other') {
       if (!user || user.balance < 50) {
         toast.error(t.publish.paymentRequired);
         return;
       }
       
-      setUser({ ...user, balance: user.balance - 50 });
-      toast.success(t.publish.paymentSuccess);
+      const newBalance = user.balance - 50;
+      try {
+        await fetch(API.admin, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'update_balance', user_id: user.id, balance: newBalance })
+        });
+        setUser({ ...user, balance: newBalance });
+        toast.success(t.publish.paymentSuccess);
+      } catch (error) {
+        toast.error(t.common.error);
+        return;
+      }
     }
     
     setSelectedEngine(engine);
@@ -407,7 +424,26 @@ const Index = () => {
         body: JSON.stringify({ action: 'update_balance', user_id: userId, balance: newBalance })
       });
       toast.success(t.admin.balanceUpdated);
-      loadAdminData();
+      await loadAdminData();
+    } catch (error) {
+      toast.error(t.common.error);
+    }
+  };
+
+  const handleAddBalance = async (userId: number, currentBalance: number, amountToAdd: number) => {
+    if (amountToAdd <= 0) {
+      toast.error('Сумма должна быть больше 0');
+      return;
+    }
+    try {
+      const newBalance = currentBalance + amountToAdd;
+      await fetch(API.admin, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update_balance', user_id: userId, balance: newBalance })
+      });
+      toast.success(t.admin.balanceAdded + `: +${amountToAdd} ₽`);
+      await loadAdminData();
     } catch (error) {
       toast.error(t.common.error);
     }
@@ -443,8 +479,9 @@ const Index = () => {
   };
 
   const handleDownloadSite = () => {
-    window.location.href = 'https://github.com/YOUR_REPO/archive/refs/heads/main.zip';
-    toast.success('Скачивание начато...');
+    toast.info(language === 'ru' 
+      ? 'Функция доступна после подключения GitHub репозитория в настройках проекта' 
+      : 'Feature available after connecting GitHub repository in project settings');
   };
 
   const isGamePurchased = (gameId: number) => {
@@ -918,9 +955,41 @@ const Index = () => {
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-2">
-                            <Input type="number" defaultValue={u.balance} className="w-32 bg-[#32475c] border-[#2a475e] text-white" onBlur={(e) => handleUpdateBalance(u.id, parseFloat(e.target.value))} />
-                            <span className="text-sm text-gray-400">₽</span>
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-400 w-24">{t.admin.currentBalance}:</span>
+                              <span className="text-sm text-[#66c0f4] font-semibold">{u.balance.toFixed(2)} ₽</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Input 
+                                type="number" 
+                                placeholder={t.admin.addBalancePlaceholder}
+                                className="w-32 bg-[#32475c] border-[#2a475e] text-white" 
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const amount = parseFloat((e.target as HTMLInputElement).value);
+                                    if (amount > 0) {
+                                      handleAddBalance(u.id, u.balance, amount);
+                                      (e.target as HTMLInputElement).value = '';
+                                    }
+                                  }
+                                }}
+                              />
+                              <Button 
+                                size="sm" 
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                                onClick={(e) => {
+                                  const input = (e.currentTarget.previousElementSibling as HTMLInputElement);
+                                  const amount = parseFloat(input.value);
+                                  if (amount > 0) {
+                                    handleAddBalance(u.id, u.balance, amount);
+                                    input.value = '';
+                                  }
+                                }}
+                              >
+                                <Icon name="Plus" className="w-4 h-4" />
+                              </Button>
+                            </div>
                           </div>
                           <Button size="sm" variant={u.is_verified ? 'outline' : 'default'} onClick={() => handleVerifyUser(u.id, u.is_verified)} className={!u.is_verified ? 'bg-[#66c0f4] hover:bg-[#5ab1e6] text-black' : 'border-[#66c0f4] text-[#66c0f4]'}>
                             {u.is_verified ? t.admin.removeVerification : t.admin.verify}
