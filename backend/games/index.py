@@ -31,7 +31,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             params = event.get('queryStringParameters', {})
             status_filter = params.get('status', 'approved')
             
-            cur.execute("SELECT id, title, description, genre, age_rating, price, logo_url, file_url, status, created_by, engine_type FROM games WHERE status = %s ORDER BY created_at DESC", (status_filter,))
+            cur.execute("SELECT id, title, description, genre, age_rating, price, logo_url, file_url, status, created_by, engine_type FROM t_p74122035_gde_store_creation.games WHERE status = %s ORDER BY created_at DESC", (status_filter,))
             games = cur.fetchall()
             
             return {
@@ -58,7 +58,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             action = body.get('action')
             
             if action == 'submit':
-                cur.execute("""INSERT INTO games (title, description, genre, age_rating, price, logo_url, file_url, contact_email, created_by, engine_type) 
+                cur.execute("""INSERT INTO t_p74122035_gde_store_creation.games (title, description, genre, age_rating, price, logo_url, file_url, contact_email, created_by, engine_type) 
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                            (body.get('title'), body.get('description'), body.get('genre'), 
                             body.get('age_rating'), body.get('price'), body.get('logo_url'), 
@@ -77,20 +77,20 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 user_id = body.get('user_id')
                 game_id = body.get('game_id')
                 
-                cur.execute("SELECT price FROM games WHERE id = %s", (game_id,))
+                cur.execute("SELECT price FROM t_p74122035_gde_store_creation.games WHERE id = %s", (game_id,))
                 game = cur.fetchone()
                 if not game:
                     return {'statusCode': 404, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Game not found'})}
                 
                 price = float(game[0])
                 
-                cur.execute("SELECT balance FROM users WHERE id = %s", (user_id,))
+                cur.execute("SELECT balance FROM t_p74122035_gde_store_creation.users WHERE id = %s", (user_id,))
                 user = cur.fetchone()
                 if float(user[0]) < price:
                     return {'statusCode': 400, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Недостаточно средств'})}
                 
-                cur.execute("INSERT INTO game_purchases (user_id, game_id, purchase_price) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (user_id, game_id, price))
-                cur.execute("UPDATE users SET balance = balance - %s WHERE id = %s", (price, user_id))
+                cur.execute("INSERT INTO t_p74122035_gde_store_creation.game_purchases (user_id, game_id, purchase_price) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (user_id, game_id, price))
+                cur.execute("UPDATE t_p74122035_gde_store_creation.users SET balance = balance - %s WHERE id = %s", (price, user_id))
                 conn.commit()
                 
                 return {
@@ -105,7 +105,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             game_id = body.get('game_id')
             status = body.get('status')
             
-            cur.execute("UPDATE games SET status = %s WHERE id = %s", (status, game_id))
+            cur.execute("UPDATE t_p74122035_gde_store_creation.games SET status = %s WHERE id = %s", (status, game_id))
             conn.commit()
             
             return {
@@ -120,12 +120,12 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             user_id = body.get('user_id')
             game_id = body.get('game_id')
             
-            cur.execute("SELECT purchase_price FROM game_purchases WHERE user_id = %s AND game_id = %s", (user_id, game_id))
+            cur.execute("SELECT purchase_price FROM t_p74122035_gde_store_creation.game_purchases WHERE user_id = %s AND game_id = %s", (user_id, game_id))
             purchase = cur.fetchone()
             if purchase:
                 refund = float(purchase[0]) * 0.9
-                cur.execute("DELETE FROM game_purchases WHERE user_id = %s AND game_id = %s", (user_id, game_id))
-                cur.execute("UPDATE users SET balance = balance + %s WHERE id = %s", (refund, user_id))
+                cur.execute("DELETE FROM t_p74122035_gde_store_creation.game_purchases WHERE user_id = %s AND game_id = %s", (user_id, game_id))
+                cur.execute("UPDATE t_p74122035_gde_store_creation.users SET balance = balance + %s WHERE id = %s", (refund, user_id))
                 conn.commit()
                 
                 return {

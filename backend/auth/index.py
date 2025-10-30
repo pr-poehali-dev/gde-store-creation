@@ -35,8 +35,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 user_id = params.get('user_id')
                 cur.execute("""
                     SELECT gp.game_id, g.id, g.title, g.description, g.genre, g.age_rating, g.price, g.logo_url, g.file_url, g.status
-                    FROM game_purchases gp
-                    JOIN games g ON gp.game_id = g.id
+                    FROM t_p74122035_gde_store_creation.game_purchases gp
+                    JOIN t_p74122035_gde_store_creation.games g ON gp.game_id = g.id
                     WHERE gp.user_id = %s
                 """, (user_id,))
                 purchases = cur.fetchall()
@@ -62,7 +62,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 }
             
             elif action == 'frames':
-                cur.execute("SELECT id, name, image_url, price FROM frames ORDER BY id")
+                cur.execute("SELECT id, name, image_url, price FROM t_p74122035_gde_store_creation.frames ORDER BY id")
                 frames = cur.fetchall()
                 
                 return {
@@ -79,7 +79,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             
             elif action == 'user_frames':
                 user_id = params.get('user_id')
-                cur.execute("SELECT frame_id FROM user_frames WHERE user_id = %s", (user_id,))
+                cur.execute("SELECT frame_id FROM t_p74122035_gde_store_creation.user_frames WHERE user_id = %s", (user_id,))
                 user_frames = cur.fetchall()
                 
                 return {
@@ -97,7 +97,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 email = body.get('email', '')
                 password = body.get('password', '')
                 
-                cur.execute("SELECT id, email, username, avatar_url, role, balance, is_banned, is_verified, time_spent_hours FROM users WHERE email = %s AND password = %s", (email, password))
+                cur.execute("SELECT id, email, username, avatar_url, role, balance, is_banned, is_verified, time_spent_hours, active_frame_id FROM t_p74122035_gde_store_creation.users WHERE email = %s AND password = %s", (email, password))
                 user = cur.fetchone()
                 
                 if not user:
@@ -128,7 +128,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                         'role': user[4],
                         'balance': float(user[5]),
                         'is_verified': user[7],
-                        'time_spent_hours': user[8]
+                        'time_spent_hours': user[8],
+                        'active_frame_id': user[9]
                     })
                 }
             
@@ -137,7 +138,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 password = body.get('password', '')
                 username = body.get('username', '')
                 
-                cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+                cur.execute("SELECT id FROM t_p74122035_gde_store_creation.users WHERE email = %s", (email,))
                 if cur.fetchone():
                     return {
                         'statusCode': 409,
@@ -146,7 +147,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                         'body': json.dumps({'error': 'Пользователь с таким email уже существует'})
                     }
                 
-                cur.execute("INSERT INTO users (email, password, username) VALUES (%s, %s, %s) RETURNING id, email, username, avatar_url, role, balance, is_verified, time_spent_hours", 
+                cur.execute("INSERT INTO t_p74122035_gde_store_creation.users (email, password, username) VALUES (%s, %s, %s) RETURNING id, email, username, avatar_url, role, balance, is_verified, time_spent_hours", 
                            (email, password, username))
                 user = cur.fetchone()
                 conn.commit()
@@ -171,20 +172,20 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 user_id = body.get('user_id')
                 frame_id = body.get('frame_id')
                 
-                cur.execute("SELECT price FROM frames WHERE id = %s", (frame_id,))
+                cur.execute("SELECT price FROM t_p74122035_gde_store_creation.frames WHERE id = %s", (frame_id,))
                 frame = cur.fetchone()
                 if not frame:
                     return {'statusCode': 404, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Frame not found'})}
                 
                 price = float(frame[0])
                 
-                cur.execute("SELECT balance FROM users WHERE id = %s", (user_id,))
+                cur.execute("SELECT balance FROM t_p74122035_gde_store_creation.users WHERE id = %s", (user_id,))
                 user = cur.fetchone()
                 if float(user[0]) < price:
                     return {'statusCode': 400, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Недостаточно средств'})}
                 
-                cur.execute("INSERT INTO user_frames (user_id, frame_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user_id, frame_id))
-                cur.execute("UPDATE users SET balance = balance - %s WHERE id = %s", (price, user_id))
+                cur.execute("INSERT INTO t_p74122035_gde_store_creation.user_frames (user_id, frame_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user_id, frame_id))
+                cur.execute("UPDATE t_p74122035_gde_store_creation.users SET balance = balance - %s WHERE id = %s", (price, user_id))
                 conn.commit()
                 
                 return {
@@ -198,33 +199,87 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             body = json.loads(event.get('body', '{}'))
             action = body.get('action')
             
-            if action == 'update_profile':
+            if action == 'refresh_user':
+                user_id = body.get('user_id')
+                
+                cur.execute("SELECT id, email, username, avatar_url, role, balance, is_verified, time_spent_hours, active_frame_id FROM t_p74122035_gde_store_creation.users WHERE id = %s", (user_id,))
+                user = cur.fetchone()
+                
+                if not user:
+                    return {'statusCode': 404, 'headers': {'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'User not found'})}
+                
+                return {
+                    'statusCode': 200,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'isBase64Encoded': False,
+                    'body': json.dumps({
+                        'id': user[0],
+                        'email': user[1],
+                        'username': user[2],
+                        'avatar_url': user[3],
+                        'role': user[4],
+                        'balance': float(user[5]),
+                        'is_verified': user[6],
+                        'time_spent_hours': user[7],
+                        'active_frame_id': user[8]
+                    })
+                }
+            
+            elif action == 'update_profile':
                 user_id = body.get('user_id')
                 username = body.get('username')
                 avatar_url = body.get('avatar_url')
                 
-                cur.execute("UPDATE users SET username = %s, avatar_url = %s WHERE id = %s", (username, avatar_url, user_id))
+                cur.execute("UPDATE t_p74122035_gde_store_creation.users SET username = %s, avatar_url = %s WHERE id = %s RETURNING id, email, username, avatar_url, role, balance, is_verified, time_spent_hours, active_frame_id", (username, avatar_url, user_id))
+                user = cur.fetchone()
                 conn.commit()
                 
                 return {
                     'statusCode': 200,
                     'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
                     'isBase64Encoded': False,
-                    'body': json.dumps({'message': 'Профиль обновлён'})
+                    'body': json.dumps({
+                        'message': 'Профиль обновлён',
+                        'user': {
+                            'id': user[0],
+                            'email': user[1],
+                            'username': user[2],
+                            'avatar_url': user[3],
+                            'role': user[4],
+                            'balance': float(user[5]),
+                            'is_verified': user[6],
+                            'time_spent_hours': user[7],
+                            'active_frame_id': user[8]
+                        }
+                    })
                 }
             
             elif action == 'set_frame':
                 user_id = body.get('user_id')
                 frame_id = body.get('frame_id')
                 
-                cur.execute("UPDATE users SET active_frame_id = %s WHERE id = %s", (frame_id, user_id))
+                cur.execute("UPDATE t_p74122035_gde_store_creation.users SET active_frame_id = %s WHERE id = %s RETURNING id, email, username, avatar_url, role, balance, is_verified, time_spent_hours, active_frame_id", (frame_id, user_id))
+                user = cur.fetchone()
                 conn.commit()
                 
                 return {
                     'statusCode': 200,
                     'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
                     'isBase64Encoded': False,
-                    'body': json.dumps({'message': 'Рамка установлена'})
+                    'body': json.dumps({
+                        'message': 'Рамка установлена',
+                        'user': {
+                            'id': user[0],
+                            'email': user[1],
+                            'username': user[2],
+                            'avatar_url': user[3],
+                            'role': user[4],
+                            'balance': float(user[5]),
+                            'is_verified': user[6],
+                            'time_spent_hours': user[7],
+                            'active_frame_id': user[8]
+                        }
+                    })
                 }
         
         return {

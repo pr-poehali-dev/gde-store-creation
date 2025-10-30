@@ -31,12 +31,24 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             params = event.get('queryStringParameters') or {}
             action = params.get('action')
             
-            if action == 'users':
+            if action == 'maintenance_status':
+                cur.execute("SELECT value FROM t_p74122035_gde_store_creation.system_settings WHERE key = 'maintenance_mode'")
+                result = cur.fetchone()
+                is_maintenance = result[0] == 'true' if result else False
+                
+                return {
+                    'statusCode': 200,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'isBase64Encoded': False,
+                    'body': json.dumps({'maintenance_mode': is_maintenance})
+                }
+            
+            elif action == 'users':
                 search = params.get('search', '')
                 if search:
-                    cur.execute("SELECT id, email, username, avatar_url, role, balance, is_banned, is_verified FROM users WHERE username ILIKE %s ORDER BY is_verified DESC, username", (f'%{search}%',))
+                    cur.execute("SELECT id, email, username, avatar_url, role, balance, is_banned, is_verified FROM t_p74122035_gde_store_creation.users WHERE username ILIKE %s ORDER BY is_verified DESC, username", (f'%{search}%',))
                 else:
-                    cur.execute("SELECT id, email, username, avatar_url, role, balance, is_banned, is_verified FROM users ORDER BY is_verified DESC, username")
+                    cur.execute("SELECT id, email, username, avatar_url, role, balance, is_banned, is_verified FROM t_p74122035_gde_store_creation.users ORDER BY is_verified DESC, username")
                 users = cur.fetchall()
                 
                 return {
@@ -56,7 +68,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 }
             
             elif action == 'pending_games':
-                cur.execute("SELECT id, title, description, genre, age_rating, price, logo_url, file_url, contact_email, created_by, engine_type FROM games WHERE status = 'pending' ORDER BY created_at DESC")
+                cur.execute("SELECT id, title, description, genre, age_rating, price, logo_url, file_url, contact_email, created_by, engine_type FROM t_p74122035_gde_store_creation.games WHERE status = 'pending' ORDER BY created_at DESC")
                 games = cur.fetchall()
                 
                 return {
@@ -87,7 +99,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             if action == 'ban_user':
                 user_id = body.get('user_id')
                 is_banned = body.get('is_banned', True)
-                cur.execute("UPDATE users SET is_banned = %s WHERE id = %s", (is_banned, user_id))
+                cur.execute("UPDATE t_p74122035_gde_store_creation.users SET is_banned = %s WHERE id = %s", (is_banned, user_id))
                 conn.commit()
                 
                 return {
@@ -100,7 +112,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             elif action == 'update_balance':
                 user_id = body.get('user_id')
                 balance = body.get('balance')
-                cur.execute("UPDATE users SET balance = %s WHERE id = %s", (balance, user_id))
+                cur.execute("UPDATE t_p74122035_gde_store_creation.users SET balance = %s WHERE id = %s", (balance, user_id))
                 conn.commit()
                 
                 return {
@@ -113,7 +125,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             elif action == 'verify_user':
                 user_id = body.get('user_id')
                 is_verified = body.get('is_verified', True)
-                cur.execute("UPDATE users SET is_verified = %s WHERE id = %s", (is_verified, user_id))
+                cur.execute("UPDATE t_p74122035_gde_store_creation.users SET is_verified = %s WHERE id = %s", (is_verified, user_id))
                 conn.commit()
                 
                 return {
@@ -121,6 +133,33 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
                     'isBase64Encoded': False,
                     'body': json.dumps({'message': 'Статус верификации обновлён'})
+                }
+            
+            elif action == 'toggle_maintenance':
+                enabled = body.get('enabled', False)
+                value = 'true' if enabled else 'false'
+                cur.execute("INSERT INTO t_p74122035_gde_store_creation.system_settings (key, value, updated_at) VALUES ('maintenance_mode', %s, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = CURRENT_TIMESTAMP", (value, value))
+                conn.commit()
+                
+                return {
+                    'statusCode': 200,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'isBase64Encoded': False,
+                    'body': json.dumps({'message': 'Режим тех. работ обновлён', 'enabled': enabled})
+                }
+            
+            elif action == 'add_balance':
+                user_id = body.get('user_id')
+                amount = body.get('amount')
+                cur.execute("UPDATE t_p74122035_gde_store_creation.users SET balance = balance + %s WHERE id = %s RETURNING balance", (amount, user_id))
+                new_balance = cur.fetchone()[0]
+                conn.commit()
+                
+                return {
+                    'statusCode': 200,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'isBase64Encoded': False,
+                    'body': json.dumps({'message': 'Баланс добавлен', 'new_balance': float(new_balance)})
                 }
         
         elif method == 'POST':
@@ -132,7 +171,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 image_url = body.get('image_url')
                 price = body.get('price')
                 
-                cur.execute("INSERT INTO frames (name, image_url, price) VALUES (%s, %s, %s) RETURNING id", (name, image_url, price))
+                cur.execute("INSERT INTO t_p74122035_gde_store_creation.frames (name, image_url, price) VALUES (%s, %s, %s) RETURNING id", (name, image_url, price))
                 frame_id = cur.fetchone()[0]
                 conn.commit()
                 

@@ -1,21 +1,10 @@
 {
   "tests": [
     {
-      "name": "Register new user",
-      "method": "POST",
-      "path": "/",
-      "body": {
-        "action": "register",
-        "email": "test@example.com",
-        "password": "testpass123",
-        "username": "TestUser"
-      },
+      "name": "Get frames list",
+      "method": "GET",
+      "path": "/?action=frames",
       "expectedStatus": 200,
-      "expectedBody": {
-        "id": "number",
-        "email": "string",
-        "username": "string"
-      },
       "bodyMatcher": "partial"
     },
     {

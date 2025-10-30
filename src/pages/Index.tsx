@@ -80,6 +80,8 @@ const Index = () => {
   const [showProfileDialog, setShowProfileDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [selectedEngine, setSelectedEngine] = useState<'gdevelop' | 'other' | null>(null);
+  const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [isLoadingMaintenance, setIsLoadingMaintenance] = useState(true);
   const [newGame, setNewGame] = useState({
     title: '', description: '', genre: '', age_rating: '0+',
     price: 0, logo_url: '', file_url: '', contact_email: '', engine_type: 'other'
@@ -94,7 +96,20 @@ const Index = () => {
     if (savedLang) {
       setLanguage(savedLang);
     }
+    checkMaintenanceMode();
   }, []);
+
+  const checkMaintenanceMode = async () => {
+    try {
+      const response = await fetch(`${API.admin}?action=maintenance_status`);
+      const data = await response.json();
+      setMaintenanceMode(data.maintenance_mode);
+      setIsLoadingMaintenance(false);
+    } catch (error) {
+      setIsLoadingMaintenance(false);
+      console.error('Failed to check maintenance mode:', error);
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -104,7 +119,7 @@ const Index = () => {
   }, [user]);
 
   useEffect(() => {
-    if (user) {
+    if (user && !isLoadingMaintenance) {
       loadGames();
       loadUserGames();
       loadFrames();
@@ -112,7 +127,7 @@ const Index = () => {
         loadAdminData();
       }
     }
-  }, [user?.id]);
+  }, [user?.id, isLoadingMaintenance]);
 
   const changeLanguage = (lang: Language) => {
     setLanguage(lang);
@@ -224,6 +239,24 @@ const Index = () => {
     }
   };
 
+  const refreshUserData = async () => {
+    if (!user) return;
+    try {
+      const response = await fetch(API.auth, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'refresh_user', user_id: user.id })
+      });
+      if (response.ok) {
+        const updatedUser = await response.json();
+        setUser(updatedUser);
+        localStorage.setItem('gdestore_user', JSON.stringify(updatedUser));
+      }
+    } catch (error) {
+      console.error('Failed to refresh user data:', error);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('gdestore_user');
     setUser(null);
@@ -237,14 +270,13 @@ const Index = () => {
         return;
       }
       
-      const newBalance = user.balance - 50;
       try {
         await fetch(API.admin, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'update_balance', user_id: user.id, balance: newBalance })
+          body: JSON.stringify({ action: 'update_balance', user_id: user.id, balance: user.balance - 50 })
         });
-        setUser({ ...user, balance: newBalance });
+        await refreshUserData();
         toast.success(t.publish.paymentSuccess);
       } catch (error) {
         toast.error(t.common.error);
@@ -298,7 +330,7 @@ const Index = () => {
       
       if (response.ok) {
         toast.success(t.shop.purchaseSuccess);
-        setUser({ ...user, balance: user.balance - price });
+        await refreshUserData();
         loadUserGames();
       } else {
         const data = await response.json();
@@ -322,7 +354,7 @@ const Index = () => {
       
       if (response.ok) {
         toast.success(`${t.library.deleteSuccess} ${data.refund.toFixed(2)} ₽ (90%)`);
-        setUser({ ...user, balance: user.balance + data.refund });
+        await refreshUserData();
         loadUserGames();
       }
     } catch (error) {
@@ -346,7 +378,7 @@ const Index = () => {
       
       if (response.ok) {
         toast.success(t.frames.purchaseSuccess);
-        setUser({ ...user, balance: user.balance - price });
+        await refreshUserData();
         loadFrames();
       }
     } catch (error) {
@@ -358,14 +390,16 @@ const Index = () => {
     if (!user) return;
 
     try {
-      await fetch(API.auth, {
+      const response = await fetch(API.auth, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'set_frame', user_id: user.id, frame_id: frameId })
       });
       
-      setUser({ ...user, active_frame_id: frameId || undefined });
-      toast.success(frameId ? t.frames.installSuccess : t.frames.removeSuccess);
+      if (response.ok) {
+        await refreshUserData();
+        toast.success(frameId ? t.frames.installSuccess : t.frames.removeSuccess);
+      }
     } catch (error) {
       toast.error(t.common.error);
     }
@@ -375,14 +409,16 @@ const Index = () => {
     if (!user) return;
 
     try {
-      await fetch(API.auth, {
+      const response = await fetch(API.auth, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'update_profile', user_id: user.id, username, avatar_url: avatarUrl })
       });
       
-      setUser({ ...user, username, avatar_url: avatarUrl });
-      toast.success(t.profile.updateSuccess);
+      if (response.ok) {
+        await refreshUserData();
+        toast.success(t.profile.updateSuccess);
+      }
     } catch (error) {
       toast.error(t.common.error);
     }
@@ -436,14 +472,32 @@ const Index = () => {
       return;
     }
     try {
-      const newBalance = currentBalance + amountToAdd;
-      await fetch(API.admin, {
+      const response = await fetch(API.admin, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'update_balance', user_id: userId, balance: newBalance })
+        body: JSON.stringify({ action: 'add_balance', user_id: userId, amount: amountToAdd })
       });
-      toast.success(t.admin.balanceAdded + `: +${amountToAdd} ₽`);
-      await loadAdminData();
+      if (response.ok) {
+        const data = await response.json();
+        toast.success(language === 'ru' ? `Баланс выдан: +${amountToAdd} ₽` : `Balance added: +${amountToAdd} ₽`);
+        await loadAdminData();
+      }
+    } catch (error) {
+      toast.error(t.common.error);
+    }
+  };
+
+  const handleToggleMaintenance = async (enabled: boolean) => {
+    try {
+      const response = await fetch(API.admin, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle_maintenance', enabled })
+      });
+      if (response.ok) {
+        setMaintenanceMode(enabled);
+        toast.success(enabled ? (language === 'ru' ? 'Режим тех. работ включен' : 'Maintenance mode enabled') : (language === 'ru' ? 'Режим тех. работ выключен' : 'Maintenance mode disabled'));
+      }
     } catch (error) {
       toast.error(t.common.error);
     }
@@ -487,6 +541,36 @@ const Index = () => {
   const isGamePurchased = (gameId: number) => {
     return userGames.some(p => p.game_id === gameId);
   };
+
+  if (isLoadingMaintenance) {
+    return (
+      <div className="min-h-screen bg-[#1b2838] flex items-center justify-center">
+        <div className="text-white text-xl">Loading...</div>
+      </div>
+    );
+  }
+
+  if (maintenanceMode && (!user || user.role !== 'admin')) {
+    return (
+      <div className="min-h-screen bg-[#1b2838] flex items-center justify-center p-4">
+        <Card className="w-full max-w-md bg-[#16202d] border-[#2a475e]">
+          <CardHeader className="text-center">
+            <div className="flex justify-center mb-4">
+              <Icon name="Wrench" size={64} className="text-[#66c0f4]" />
+            </div>
+            <CardTitle className="text-3xl font-bold text-white">
+              {language === 'ru' ? 'Технические работы' : 'Maintenance Mode'}
+            </CardTitle>
+            <CardDescription className="text-gray-400 mt-4">
+              {language === 'ru' 
+                ? 'Сайт находится на техническом обслуживании. Пожалуйста, зайдите позже.' 
+                : 'The site is under maintenance. Please come back later.'}
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
@@ -909,10 +993,25 @@ const Index = () => {
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <h2 className="text-3xl font-bold text-white">{t.admin.title}</h2>
-              <Button onClick={handleDownloadSite} className="bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold">
-                <Icon name="Download" className="w-4 h-4 mr-2" />
-                {t.admin.downloadSite}
-              </Button>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 bg-[#16202d] px-4 py-2 rounded-lg border border-[#2a475e]">
+                  <Icon name={maintenanceMode ? "Wrench" : "CheckCircle"} className={`w-5 h-5 ${maintenanceMode ? 'text-orange-500' : 'text-green-500'}`} />
+                  <span className="text-white font-medium">
+                    {language === 'ru' ? (maintenanceMode ? 'Тех. работы ВКЛ' : 'Тех. работы ВЫКЛ') : (maintenanceMode ? 'Maintenance ON' : 'Maintenance OFF')}
+                  </span>
+                  <Button 
+                    size="sm"
+                    onClick={() => handleToggleMaintenance(!maintenanceMode)}
+                    className={maintenanceMode ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-600 hover:bg-orange-700'}
+                  >
+                    {maintenanceMode ? (language === 'ru' ? 'Выключить' : 'Turn Off') : (language === 'ru' ? 'Включить' : 'Turn On')}
+                  </Button>
+                </div>
+                <Button onClick={handleDownloadSite} className="bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold">
+                  <Icon name="Download" className="w-4 h-4 mr-2" />
+                  {t.admin.downloadSite}
+                </Button>
+              </div>
             </div>
             
             <Tabs defaultValue="users">
