@@ -10,14 +10,18 @@ import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import Icon from '@/components/ui/icon';
 import { toast } from 'sonner';
+import { useTranslation, type Language } from '@/lib/translations';
 
 const API = {
   auth: 'https://functions.poehali.dev/df6c49ac-80ef-48fc-8f08-d4cbd85543dd',
   games: 'https://functions.poehali.dev/94ea32c1-f6d0-4b78-9dde-a4e1fbd73dd8',
   admin: 'https://functions.poehali.dev/91a49e46-cf05-4b9d-9452-6f250a5f23ec'
 };
+
+const LOGO_URL = 'https://www.dropbox.com/scl/fi/48km8n4287raygxlghdwd/image670.png?rlkey=3dbn8w75swtx0tyxsupw5re90&st=014gu15k&raw=1';
 
 interface User {
   id: number;
@@ -44,6 +48,7 @@ interface Game {
   status: string;
   contact_email?: string;
   created_by?: number;
+  engine_type?: string;
 }
 
 interface Frame {
@@ -59,6 +64,9 @@ interface Purchase {
 }
 
 const Index = () => {
+  const [language, setLanguage] = useState<Language>('ru');
+  const t = useTranslation(language);
+  
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<string>('home');
   const [games, setGames] = useState<Game[]>([]);
@@ -70,15 +78,21 @@ const Index = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [showProfileDialog, setShowProfileDialog] = useState(false);
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+  const [selectedEngine, setSelectedEngine] = useState<'gdevelop' | 'other' | null>(null);
   const [newGame, setNewGame] = useState({
     title: '', description: '', genre: '', age_rating: '0+',
-    price: 0, logo_url: '', file_url: '', contact_email: ''
+    price: 0, logo_url: '', file_url: '', contact_email: '', engine_type: 'other'
   });
 
   useEffect(() => {
     const savedUser = localStorage.getItem('gdestore_user');
+    const savedLang = localStorage.getItem('gdestore_lang') as Language;
     if (savedUser) {
       setUser(JSON.parse(savedUser));
+    }
+    if (savedLang) {
+      setLanguage(savedLang);
     }
   }, []);
 
@@ -93,6 +107,11 @@ const Index = () => {
       }
     }
   }, [user]);
+
+  const changeLanguage = (lang: Language) => {
+    setLanguage(lang);
+    localStorage.setItem('gdestore_lang', lang);
+  };
 
   const loadGames = async () => {
     try {
@@ -163,12 +182,12 @@ const Index = () => {
       if (response.ok) {
         localStorage.setItem('gdestore_user', JSON.stringify(data));
         setUser(data);
-        toast.success('Вход выполнен успешно!');
+        toast.success(t.auth.loginSuccess);
       } else {
-        toast.error(data.error || 'Ошибка входа');
+        toast.error(data.error || t.auth.loginError);
       }
     } catch (error) {
-      toast.error('Ошибка подключения');
+      toast.error(t.auth.connectionError);
     }
   };
 
@@ -190,12 +209,12 @@ const Index = () => {
       if (response.ok) {
         localStorage.setItem('gdestore_user', JSON.stringify(data));
         setUser(data);
-        toast.success('Регистрация успешна!');
+        toast.success(t.auth.registerSuccess);
       } else {
-        toast.error(data.error || 'Ошибка регистрации');
+        toast.error(data.error || t.auth.registerError);
       }
     } catch (error) {
-      toast.error('Ошибка подключения');
+      toast.error(t.auth.connectionError);
     }
   };
 
@@ -205,10 +224,51 @@ const Index = () => {
     setActiveTab('home');
   };
 
+  const handleEngineSelection = (engine: 'gdevelop' | 'other') => {
+    if (engine === 'other') {
+      if (!user || user.balance < 50) {
+        toast.error(t.publish.paymentRequired);
+        return;
+      }
+      
+      setUser({ ...user, balance: user.balance - 50 });
+      toast.success(t.publish.paymentSuccess);
+    }
+    
+    setSelectedEngine(engine);
+    setNewGame({ ...newGame, engine_type: engine });
+  };
+
+  const handlePublishGame = async () => {
+    if (!user || !selectedEngine) return;
+    
+    try {
+      const response = await fetch(API.games, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          action: 'submit', 
+          ...newGame,
+          user_id: user.id
+        })
+      });
+      
+      if (response.ok) {
+        toast.success(t.publish.publishSuccess);
+        setShowPublishDialog(false);
+        setSelectedEngine(null);
+        setNewGame({ title: '', description: '', genre: '', age_rating: '0+', price: 0, logo_url: '', file_url: '', contact_email: '', engine_type: 'other' });
+        setTimeout(() => toast.dismiss(), 5000);
+      }
+    } catch (error) {
+      toast.error(t.publish.publishError);
+    }
+  };
+
   const handlePurchaseGame = async (gameId: number, price: number) => {
     if (!user) return;
     if (user.balance < price) {
-      toast.error('Недостаточно средств на балансе');
+      toast.error(t.shop.notEnoughMoney);
       return;
     }
 
@@ -220,15 +280,15 @@ const Index = () => {
       });
       
       if (response.ok) {
-        toast.success('Игра успешно куплена!');
+        toast.success(t.shop.purchaseSuccess);
         setUser({ ...user, balance: user.balance - price });
         loadUserGames();
       } else {
         const data = await response.json();
-        toast.error(data.error || 'Ошибка покупки');
+        toast.error(data.error || t.common.error);
       }
     } catch (error) {
-      toast.error('Ошибка покупки');
+      toast.error(t.common.error);
     }
   };
 
@@ -244,44 +304,19 @@ const Index = () => {
       const data = await response.json();
       
       if (response.ok) {
-        toast.success(`Игра удалена! Возврат: ${data.refund.toFixed(2)} ₽ (90%)`);
+        toast.success(`${t.library.deleteSuccess} ${data.refund.toFixed(2)} ₽ (90%)`);
         setUser({ ...user, balance: user.balance + data.refund });
         loadUserGames();
       }
     } catch (error) {
-      toast.error('Ошибка удаления');
-    }
-  };
-
-  const handlePublishGame = async () => {
-    if (!user) return;
-    
-    try {
-      const response = await fetch(API.games, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          action: 'submit', 
-          ...newGame,
-          user_id: user.id
-        })
-      });
-      
-      if (response.ok) {
-        toast.success('Игра отправлена на модерацию! Мы свяжемся с вами по email.');
-        setShowPublishDialog(false);
-        setNewGame({ title: '', description: '', genre: '', age_rating: '0+', price: 0, logo_url: '', file_url: '', contact_email: '' });
-        setTimeout(() => toast.dismiss(), 5000);
-      }
-    } catch (error) {
-      toast.error('Ошибка отправки');
+      toast.error(t.common.error);
     }
   };
 
   const handlePurchaseFrame = async (frameId: number, price: number) => {
     if (!user) return;
     if (user.balance < price) {
-      toast.error('Недостаточно средств');
+      toast.error(t.frames.notEnoughMoney);
       return;
     }
 
@@ -293,12 +328,12 @@ const Index = () => {
       });
       
       if (response.ok) {
-        toast.success('Рамка куплена!');
+        toast.success(t.frames.purchaseSuccess);
         setUser({ ...user, balance: user.balance - price });
         loadFrames();
       }
     } catch (error) {
-      toast.error('Ошибка покупки');
+      toast.error(t.common.error);
     }
   };
 
@@ -313,9 +348,9 @@ const Index = () => {
       });
       
       setUser({ ...user, active_frame_id: frameId || undefined });
-      toast.success(frameId ? 'Рамка установлена!' : 'Рамка снята');
+      toast.success(frameId ? t.frames.installSuccess : t.frames.removeSuccess);
     } catch (error) {
-      toast.error('Ошибка');
+      toast.error(t.common.error);
     }
   };
 
@@ -330,9 +365,9 @@ const Index = () => {
       });
       
       setUser({ ...user, username, avatar_url: avatarUrl });
-      toast.success('Профиль обновлён!');
+      toast.success(t.profile.updateSuccess);
     } catch (error) {
-      toast.error('Ошибка обновления');
+      toast.error(t.common.error);
     }
   };
 
@@ -343,10 +378,10 @@ const Index = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'ban_user', user_id: userId, is_banned: !isBanned })
       });
-      toast.success(isBanned ? 'Пользователь разблокирован' : 'Пользователь заблокирован');
+      toast.success(isBanned ? t.admin.userUnbanned : t.admin.userBanned);
       loadAdminData();
     } catch (error) {
-      toast.error('Ошибка операции');
+      toast.error(t.common.error);
     }
   };
 
@@ -357,10 +392,10 @@ const Index = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'verify_user', user_id: userId, is_verified: !isVerified })
       });
-      toast.success(isVerified ? 'Верификация снята' : 'Пользователь верифицирован');
+      toast.success(isVerified ? t.admin.verificationRemoved : t.admin.userVerified);
       loadAdminData();
     } catch (error) {
-      toast.error('Ошибка операции');
+      toast.error(t.common.error);
     }
   };
 
@@ -371,10 +406,10 @@ const Index = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'update_balance', user_id: userId, balance: newBalance })
       });
-      toast.success('Баланс обновлён');
+      toast.success(t.admin.balanceUpdated);
       loadAdminData();
     } catch (error) {
-      toast.error('Ошибка операции');
+      toast.error(t.common.error);
     }
   };
 
@@ -385,11 +420,11 @@ const Index = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ game_id: gameId, status })
       });
-      toast.success(status === 'approved' ? 'Игра одобрена' : 'Игра отклонена');
+      toast.success(status === 'approved' ? t.admin.gameApproved : t.admin.gameRejected);
       loadAdminData();
       loadGames();
     } catch (error) {
-      toast.error('Ошибка операции');
+      toast.error(t.common.error);
     }
   };
 
@@ -400,11 +435,16 @@ const Index = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'create_frame', name, image_url: imageUrl, price })
       });
-      toast.success('Рамка создана!');
+      toast.success(t.admin.frameCreated);
       loadFrames();
     } catch (error) {
-      toast.error('Ошибка создания');
+      toast.error(t.common.error);
     }
+  };
+
+  const handleDownloadSite = () => {
+    window.location.href = 'https://github.com/YOUR_REPO/archive/refs/heads/main.zip';
+    toast.success('Скачивание начато...');
   };
 
   const isGamePurchased = (gameId: number) => {
@@ -416,46 +456,57 @@ const Index = () => {
       <div className="min-h-screen bg-[#1b2838] flex items-center justify-center p-4">
         <Card className="w-full max-w-md bg-[#16202d] border-[#2a475e]">
           <CardHeader className="space-y-1">
-            <div className="flex items-center gap-2 mb-4">
-              <Icon name="Gamepad2" className="w-8 h-8 text-[#66c0f4]" />
-              <CardTitle className="text-3xl font-bold text-white">GDeStore</CardTitle>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <img src={LOGO_URL} alt="Logo" className="w-8 h-8" />
+                <CardTitle className="text-3xl font-bold text-white">{t.app.name}</CardTitle>
+              </div>
+              <Select value={language} onValueChange={(v) => changeLanguage(v as Language)}>
+                <SelectTrigger className="w-24 bg-[#32475c] border-[#2a475e] text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#16202d] border-[#2a475e]">
+                  <SelectItem value="ru" className="text-white">RU</SelectItem>
+                  <SelectItem value="en" className="text-white">EN</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <CardDescription className="text-gray-400">Игровая платформа для Android</CardDescription>
+            <CardDescription className="text-gray-400">{t.app.tagline}</CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="login">
               <TabsList className="grid w-full grid-cols-2 bg-[#1b2838]">
-                <TabsTrigger value="login" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">Вход</TabsTrigger>
-                <TabsTrigger value="register" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">Регистрация</TabsTrigger>
+                <TabsTrigger value="login" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">{t.auth.login}</TabsTrigger>
+                <TabsTrigger value="register" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">{t.auth.register}</TabsTrigger>
               </TabsList>
               <TabsContent value="login">
                 <form onSubmit={handleLogin} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="login-email" className="text-gray-300">Email</Label>
+                    <Label htmlFor="login-email" className="text-gray-300">{t.auth.email}</Label>
                     <Input id="login-email" name="email" type="email" required className="bg-[#32475c] border-[#2a475e] text-white" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="login-password" className="text-gray-300">Пароль</Label>
+                    <Label htmlFor="login-password" className="text-gray-300">{t.auth.password}</Label>
                     <Input id="login-password" name="password" type="password" required className="bg-[#32475c] border-[#2a475e] text-white" />
                   </div>
-                  <Button type="submit" className="w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold">Войти</Button>
+                  <Button type="submit" className="w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold">{t.auth.loginButton}</Button>
                 </form>
               </TabsContent>
               <TabsContent value="register">
                 <form onSubmit={handleRegister} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="register-username" className="text-gray-300">Имя пользователя</Label>
+                    <Label htmlFor="register-username" className="text-gray-300">{t.auth.username}</Label>
                     <Input id="register-username" name="username" required className="bg-[#32475c] border-[#2a475e] text-white" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="register-email" className="text-gray-300">Email</Label>
+                    <Label htmlFor="register-email" className="text-gray-300">{t.auth.email}</Label>
                     <Input id="register-email" name="email" type="email" required className="bg-[#32475c] border-[#2a475e] text-white" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="register-password" className="text-gray-300">Пароль</Label>
+                    <Label htmlFor="register-password" className="text-gray-300">{t.auth.password}</Label>
                     <Input id="register-password" name="password" type="password" required className="bg-[#32475c] border-[#2a475e] text-white" />
                   </div>
-                  <Button type="submit" className="w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold">Зарегистрироваться</Button>
+                  <Button type="submit" className="w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold">{t.auth.registerButton}</Button>
                 </form>
               </TabsContent>
             </Tabs>
@@ -471,8 +522,8 @@ const Index = () => {
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
-              <Icon name="Gamepad2" className="w-6 h-6 text-[#66c0f4]" />
-              <h1 className="text-xl font-bold text-white">GDeStore</h1>
+              <img src={LOGO_URL} alt="Logo" className="w-6 h-6" />
+              <h1 className="text-xl font-bold text-white">{t.app.name}</h1>
             </div>
             <nav className="flex gap-2">
               <Button 
@@ -481,7 +532,7 @@ const Index = () => {
                 className={activeTab === 'home' ? 'bg-[#66c0f4] text-black hover:bg-[#5ab1e6]' : 'text-gray-300 hover:text-white hover:bg-[#2a475e]'}
               >
                 <Icon name="Home" className="w-4 h-4 mr-2" />
-                Магазин
+                {t.nav.shop}
               </Button>
               <Button 
                 variant={activeTab === 'library' ? 'default' : 'ghost'} 
@@ -489,7 +540,7 @@ const Index = () => {
                 className={activeTab === 'library' ? 'bg-[#66c0f4] text-black hover:bg-[#5ab1e6]' : 'text-gray-300 hover:text-white hover:bg-[#2a475e]'}
               >
                 <Icon name="Library" className="w-4 h-4 mr-2" />
-                Библиотека
+                {t.nav.library}
               </Button>
               <Button 
                 variant={activeTab === 'frames' ? 'default' : 'ghost'} 
@@ -497,7 +548,7 @@ const Index = () => {
                 className={activeTab === 'frames' ? 'bg-[#66c0f4] text-black hover:bg-[#5ab1e6]' : 'text-gray-300 hover:text-white hover:bg-[#2a475e]'}
               >
                 <Icon name="Image" className="w-4 h-4 mr-2" />
-                Рамки
+                {t.nav.frames}
               </Button>
               {user.role === 'admin' && (
                 <Button 
@@ -506,7 +557,7 @@ const Index = () => {
                   className={activeTab === 'admin' ? 'bg-[#66c0f4] text-black hover:bg-[#5ab1e6]' : 'text-gray-300 hover:text-white hover:bg-[#2a475e]'}
                 >
                   <Icon name="Shield" className="w-4 h-4 mr-2" />
-                  Админ
+                  {t.nav.admin}
                 </Button>
               )}
             </nav>
@@ -525,6 +576,13 @@ const Index = () => {
               </Button>
             </div>
             <Separator orientation="vertical" className="h-6 bg-[#2a475e]" />
+            <Button 
+              variant="ghost" 
+              onClick={() => setShowSettingsDialog(true)}
+              className="text-gray-300 hover:text-white hover:bg-[#2a475e]"
+            >
+              <Icon name="Settings" className="w-5 h-5" />
+            </Button>
             <Dialog open={showProfileDialog} onOpenChange={setShowProfileDialog}>
               <DialogTrigger asChild>
                 <Button variant="ghost" className="flex items-center gap-2 text-gray-300 hover:text-white hover:bg-[#2a475e]">
@@ -549,11 +607,11 @@ const Index = () => {
               </DialogTrigger>
               <DialogContent className="bg-[#16202d] border-[#2a475e] text-white">
                 <DialogHeader>
-                  <DialogTitle>Профиль</DialogTitle>
+                  <DialogTitle>{t.profile.title}</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label className="text-gray-300">Имя пользователя</Label>
+                    <Label className="text-gray-300">{t.profile.username}</Label>
                     <Input 
                       defaultValue={user.username} 
                       onBlur={(e) => handleUpdateProfile(e.target.value, user.avatar_url || '')}
@@ -561,7 +619,7 @@ const Index = () => {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-gray-300">URL аватара</Label>
+                    <Label className="text-gray-300">{t.profile.avatarUrl}</Label>
                     <Input 
                       defaultValue={user.avatar_url || ''} 
                       onBlur={(e) => handleUpdateProfile(user.username, e.target.value)}
@@ -569,12 +627,12 @@ const Index = () => {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-gray-300">Время на сайте</Label>
-                    <p className="text-[#66c0f4]">{user.time_spent_hours} часов</p>
+                    <Label className="text-gray-300">{t.profile.timeSpent}</Label>
+                    <p className="text-[#66c0f4]">{user.time_spent_hours} {t.profile.hours}</p>
                   </div>
                   <Button onClick={handleLogout} variant="destructive" className="w-full">
                     <Icon name="LogOut" className="w-4 h-4 mr-2" />
-                    Выйти
+                    {t.auth.logout}
                   </Button>
                 </div>
               </DialogContent>
@@ -583,113 +641,122 @@ const Index = () => {
         </div>
       </header>
 
+      <Dialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog}>
+        <DialogContent className="bg-[#16202d] border-[#2a475e] text-white">
+          <DialogHeader>
+            <DialogTitle>{t.settings.title}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-gray-300">{t.settings.language}</Label>
+              <Select value={language} onValueChange={(v) => changeLanguage(v as Language)}>
+                <SelectTrigger className="bg-[#32475c] border-[#2a475e] text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#16202d] border-[#2a475e]">
+                  <SelectItem value="ru" className="text-white">{t.settings.russian}</SelectItem>
+                  <SelectItem value="en" className="text-white">{t.settings.english}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <main className="container mx-auto px-4 py-8">
         {activeTab === 'home' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-3xl font-bold text-white">Каталог игр</h2>
-              <Dialog open={showPublishDialog} onOpenChange={setShowPublishDialog}>
+              <h2 className="text-3xl font-bold text-white">{t.shop.title}</h2>
+              <Dialog open={showPublishDialog} onOpenChange={(open) => { setShowPublishDialog(open); if (!open) setSelectedEngine(null); }}>
                 <DialogTrigger asChild>
                   <Button className="bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold">
                     <Icon name="Upload" className="w-4 h-4 mr-2" />
-                    Опубликовать игру
+                    {t.shop.publishGame}
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="bg-[#16202d] border-[#2a475e] text-white max-w-2xl">
                   <DialogHeader>
-                    <DialogTitle>Публикация игры</DialogTitle>
-                    <DialogDescription className="text-gray-400">Заполните форму для отправки игры на модерацию</DialogDescription>
+                    <DialogTitle>{t.publish.title}</DialogTitle>
+                    <DialogDescription className="text-gray-400">{t.publish.description}</DialogDescription>
                   </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label className="text-gray-300">Название игры</Label>
-                      <Input 
-                        value={newGame.title} 
-                        onChange={(e) => setNewGame({...newGame, title: e.target.value})}
-                        className="bg-[#32475c] border-[#2a475e] text-white"
-                      />
+                  
+                  {!selectedEngine ? (
+                    <div className="space-y-4">
+                      <Label className="text-gray-300">{t.publish.selectEngine}</Label>
+                      <RadioGroup value={selectedEngine || ''} onValueChange={(v) => handleEngineSelection(v as 'gdevelop' | 'other')}>
+                        <div className="flex items-center space-x-2 p-4 border border-[#2a475e] rounded-lg hover:bg-[#1b2838] cursor-pointer">
+                          <RadioGroupItem value="gdevelop" id="gdevelop" />
+                          <Label htmlFor="gdevelop" className="flex-1 cursor-pointer">
+                            {t.publish.gdevelopFree}
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2 p-4 border border-[#2a475e] rounded-lg hover:bg-[#1b2838] cursor-pointer">
+                          <RadioGroupItem value="other" id="other" />
+                          <Label htmlFor="other" className="flex-1 cursor-pointer">
+                            {t.publish.otherEnginePaid}
+                          </Label>
+                        </div>
+                      </RadioGroup>
+                      <p className="text-sm text-gray-400">{t.publish.pcGamesOnly}</p>
                     </div>
-                    <div className="space-y-2">
-                      <Label className="text-gray-300">Описание</Label>
-                      <Textarea 
-                        value={newGame.description} 
-                        onChange={(e) => setNewGame({...newGame, description: e.target.value})}
-                        className="bg-[#32475c] border-[#2a475e] text-white"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
+                  ) : (
+                    <div className="space-y-4">
                       <div className="space-y-2">
-                        <Label className="text-gray-300">Жанр</Label>
-                        <Input 
-                          value={newGame.genre} 
-                          onChange={(e) => setNewGame({...newGame, genre: e.target.value})}
-                          placeholder="Экшен, RPG, и т.д."
-                          className="bg-[#32475c] border-[#2a475e] text-white"
-                        />
+                        <Label className="text-gray-300">{t.publish.gameName}</Label>
+                        <Input value={newGame.title} onChange={(e) => setNewGame({...newGame, title: e.target.value})} className="bg-[#32475c] border-[#2a475e] text-white" />
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-gray-300">Возрастное ограничение</Label>
-                        <Select value={newGame.age_rating} onValueChange={(v) => setNewGame({...newGame, age_rating: v})}>
-                          <SelectTrigger className="bg-[#32475c] border-[#2a475e] text-white">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="bg-[#16202d] border-[#2a475e] text-white">
-                            <SelectItem value="0+">0+</SelectItem>
-                            <SelectItem value="6+">6+</SelectItem>
-                            <SelectItem value="12+">12+</SelectItem>
-                            <SelectItem value="16+">16+</SelectItem>
-                            <SelectItem value="18+">18+</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <Label className="text-gray-300">{t.publish.gameDescription}</Label>
+                        <Textarea value={newGame.description} onChange={(e) => setNewGame({...newGame, description: e.target.value})} className="bg-[#32475c] border-[#2a475e] text-white" />
                       </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-gray-300">{t.publish.genre}</Label>
+                          <Input value={newGame.genre} onChange={(e) => setNewGame({...newGame, genre: e.target.value})} placeholder={t.publish.genrePlaceholder} className="bg-[#32475c] border-[#2a475e] text-white" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-gray-300">{t.publish.ageRating}</Label>
+                          <Select value={newGame.age_rating} onValueChange={(v) => setNewGame({...newGame, age_rating: v})}>
+                            <SelectTrigger className="bg-[#32475c] border-[#2a475e] text-white">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-[#16202d] border-[#2a475e] text-white">
+                              <SelectItem value="0+">0+</SelectItem>
+                              <SelectItem value="6+">6+</SelectItem>
+                              <SelectItem value="12+">12+</SelectItem>
+                              <SelectItem value="16+">16+</SelectItem>
+                              <SelectItem value="18+">18+</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-gray-300">{t.publish.price}</Label>
+                        <Input type="number" value={newGame.price} onChange={(e) => setNewGame({...newGame, price: parseFloat(e.target.value)})} className="bg-[#32475c] border-[#2a475e] text-white" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-gray-300">{t.publish.logoUrl}</Label>
+                        <Input value={newGame.logo_url} onChange={(e) => setNewGame({...newGame, logo_url: e.target.value})} className="bg-[#32475c] border-[#2a475e] text-white" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-gray-300">{t.publish.fileUrl}</Label>
+                        <Input value={newGame.file_url} onChange={(e) => setNewGame({...newGame, file_url: e.target.value})} className="bg-[#32475c] border-[#2a475e] text-white" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-gray-300">{t.publish.contactEmail}</Label>
+                        <Input type="email" value={newGame.contact_email} onChange={(e) => setNewGame({...newGame, contact_email: e.target.value})} className="bg-[#32475c] border-[#2a475e] text-white" />
+                      </div>
+                      <Button onClick={handlePublishGame} className="w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold">{t.publish.publishButton}</Button>
                     </div>
-                    <div className="space-y-2">
-                      <Label className="text-gray-300">Цена (₽)</Label>
-                      <Input 
-                        type="number" 
-                        value={newGame.price} 
-                        onChange={(e) => setNewGame({...newGame, price: parseFloat(e.target.value)})}
-                        className="bg-[#32475c] border-[#2a475e] text-white"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-gray-300">URL логотипа</Label>
-                      <Input 
-                        value={newGame.logo_url} 
-                        onChange={(e) => setNewGame({...newGame, logo_url: e.target.value})}
-                        className="bg-[#32475c] border-[#2a475e] text-white"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-gray-300">URL файла игры (.apk)</Label>
-                      <Input 
-                        value={newGame.file_url} 
-                        onChange={(e) => setNewGame({...newGame, file_url: e.target.value})}
-                        className="bg-[#32475c] border-[#2a475e] text-white"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-gray-300">Email для связи</Label>
-                      <Input 
-                        type="email"
-                        value={newGame.contact_email} 
-                        onChange={(e) => setNewGame({...newGame, contact_email: e.target.value})}
-                        className="bg-[#32475c] border-[#2a475e] text-white"
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button onClick={handlePublishGame} className="bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold">
-                      Опубликовать
-                    </Button>
-                  </DialogFooter>
+                  )}
                 </DialogContent>
               </Dialog>
             </div>
             {games.length === 0 ? (
               <Card className="p-12 text-center bg-[#16202d] border-[#2a475e]">
                 <Icon name="Gamepad2" className="w-16 h-16 mx-auto mb-4 text-gray-500" />
-                <p className="text-lg text-gray-400">Игры скоро появятся</p>
+                <p className="text-lg text-gray-400">{t.shop.noGames}</p>
               </Card>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -710,22 +777,8 @@ const Index = () => {
                           <Badge variant="outline" className="border-[#66c0f4] text-[#66c0f4]">{game.genre}</Badge>
                           <span className="text-lg font-bold text-[#66c0f4]">{game.price} ₽</span>
                         </div>
-                        <Button 
-                          className={purchased ? 'w-full bg-green-600 hover:bg-green-700' : 'w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold'}
-                          onClick={() => !purchased && handlePurchaseGame(game.id, game.price)}
-                          disabled={purchased}
-                        >
-                          {purchased ? (
-                            <>
-                              <Icon name="Check" className="w-4 h-4 mr-2" />
-                              Куплено
-                            </>
-                          ) : (
-                            <>
-                              <Icon name="ShoppingCart" className="w-4 h-4 mr-2" />
-                              Купить
-                            </>
-                          )}
+                        <Button className={purchased ? 'w-full bg-green-600 hover:bg-green-700' : 'w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold'} onClick={() => !purchased && handlePurchaseGame(game.id, game.price)} disabled={purchased}>
+                          {purchased ? <><Icon name="Check" className="w-4 h-4 mr-2" />{t.shop.purchased}</> : <><Icon name="ShoppingCart" className="w-4 h-4 mr-2" />{t.shop.buy}</>}
                         </Button>
                       </CardContent>
                     </Card>
@@ -738,11 +791,11 @@ const Index = () => {
 
         {activeTab === 'library' && (
           <div className="space-y-6">
-            <h2 className="text-3xl font-bold text-white">Моя библиотека</h2>
+            <h2 className="text-3xl font-bold text-white">{t.library.title}</h2>
             {userGames.length === 0 ? (
               <Card className="p-12 text-center bg-[#16202d] border-[#2a475e]">
                 <Icon name="Library" className="w-16 h-16 mx-auto mb-4 text-gray-500" />
-                <p className="text-lg text-gray-400">У вас пока нет игр</p>
+                <p className="text-lg text-gray-400">{t.library.noGames}</p>
               </Card>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -758,16 +811,12 @@ const Index = () => {
                       <Button className="w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold" asChild>
                         <a href={purchase.game.file_url} download>
                           <Icon name="Download" className="w-4 h-4 mr-2" />
-                          Скачать
+                          {t.library.download}
                         </a>
                       </Button>
-                      <Button 
-                        variant="destructive" 
-                        className="w-full"
-                        onClick={() => handleDeleteGame(purchase.game_id)}
-                      >
+                      <Button variant="destructive" className="w-full" onClick={() => handleDeleteGame(purchase.game_id)}>
                         <Icon name="Trash2" className="w-4 h-4 mr-2" />
-                        Удалить (возврат 90%)
+                        {t.library.delete}
                       </Button>
                     </CardContent>
                   </Card>
@@ -779,11 +828,11 @@ const Index = () => {
 
         {activeTab === 'frames' && (
           <div className="space-y-6">
-            <h2 className="text-3xl font-bold text-white">Магазин рамок</h2>
+            <h2 className="text-3xl font-bold text-white">{t.frames.title}</h2>
             <Tabs defaultValue="shop">
               <TabsList className="bg-[#1b2838]">
-                <TabsTrigger value="shop" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">Магазин</TabsTrigger>
-                <TabsTrigger value="my" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">Мои рамки</TabsTrigger>
+                <TabsTrigger value="shop" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">{t.frames.shop}</TabsTrigger>
+                <TabsTrigger value="my" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">{t.frames.myFrames}</TabsTrigger>
               </TabsList>
               <TabsContent value="shop">
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
@@ -794,13 +843,8 @@ const Index = () => {
                         <img src={frame.image_url} alt={frame.name} className="w-full aspect-square object-cover rounded mb-2" />
                         <p className="text-sm text-white text-center mb-2">{frame.name}</p>
                         <p className="text-sm text-[#66c0f4] text-center mb-2">{frame.price} ₽</p>
-                        <Button 
-                          size="sm" 
-                          className={owned ? 'w-full bg-green-600' : 'w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black'}
-                          onClick={() => !owned && handlePurchaseFrame(frame.id, frame.price)}
-                          disabled={owned}
-                        >
-                          {owned ? 'Куплено' : 'Купить'}
+                        <Button size="sm" className={owned ? 'w-full bg-green-600' : 'w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black'} onClick={() => !owned && handlePurchaseFrame(frame.id, frame.price)} disabled={owned}>
+                          {owned ? t.frames.purchased : t.frames.buy}
                         </Button>
                       </Card>
                     );
@@ -813,13 +857,8 @@ const Index = () => {
                     <Card key={frame.id} className="p-4 bg-[#16202d] border-[#2a475e]">
                       <img src={frame.image_url} alt={frame.name} className="w-full aspect-square object-cover rounded mb-2" />
                       <p className="text-sm text-white text-center mb-2">{frame.name}</p>
-                      <Button 
-                        size="sm" 
-                        variant={user.active_frame_id === frame.id ? 'destructive' : 'default'}
-                        className={user.active_frame_id !== frame.id ? 'w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black' : 'w-full'}
-                        onClick={() => handleSetActiveFrame(user.active_frame_id === frame.id ? null : frame.id)}
-                      >
-                        {user.active_frame_id === frame.id ? 'Снять' : 'Установить'}
+                      <Button size="sm" variant={user.active_frame_id === frame.id ? 'destructive' : 'default'} className={user.active_frame_id !== frame.id ? 'w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black' : 'w-full'} onClick={() => handleSetActiveFrame(user.active_frame_id === frame.id ? null : frame.id)}>
+                        {user.active_frame_id === frame.id ? t.frames.remove : t.frames.install}
                       </Button>
                     </Card>
                   ))}
@@ -831,26 +870,27 @@ const Index = () => {
 
         {activeTab === 'admin' && user.role === 'admin' && (
           <div className="space-y-6">
-            <h2 className="text-3xl font-bold text-white">Админ-панель</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-3xl font-bold text-white">{t.admin.title}</h2>
+              <Button onClick={handleDownloadSite} className="bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold">
+                <Icon name="Download" className="w-4 h-4 mr-2" />
+                {t.admin.downloadSite}
+              </Button>
+            </div>
             
             <Tabs defaultValue="users">
               <TabsList className="bg-[#1b2838]">
-                <TabsTrigger value="users" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">Пользователи</TabsTrigger>
-                <TabsTrigger value="moderation" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">Модерация игр</TabsTrigger>
-                <TabsTrigger value="frames" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">Создать рамку</TabsTrigger>
+                <TabsTrigger value="users" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">{t.admin.users}</TabsTrigger>
+                <TabsTrigger value="moderation" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">{t.admin.moderation}</TabsTrigger>
+                <TabsTrigger value="frames" className="data-[state=active]:bg-[#66c0f4] data-[state=active]:text-black">{t.admin.createFrame}</TabsTrigger>
               </TabsList>
 
               <TabsContent value="users" className="space-y-4">
                 <Card className="bg-[#16202d] border-[#2a475e]">
                   <CardHeader>
-                    <CardTitle className="text-white">Управление пользователями</CardTitle>
+                    <CardTitle className="text-white">{t.admin.users}</CardTitle>
                     <div className="pt-2">
-                      <Input 
-                        placeholder="Поиск по имени пользователя..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="bg-[#32475c] border-[#2a475e] text-white"
-                      />
+                      <Input placeholder={t.admin.searchPlaceholder} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-[#32475c] border-[#2a475e] text-white" />
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -864,11 +904,7 @@ const Index = () => {
                             </Avatar>
                             {u.active_frame_id && (
                               <div className="absolute inset-0 pointer-events-none">
-                                <img 
-                                  src={frames.find(f => f.id === u.active_frame_id)?.image_url} 
-                                  alt="Frame" 
-                                  className="w-full h-full object-cover"
-                                />
+                                <img src={frames.find(f => f.id === u.active_frame_id)?.image_url} alt="Frame" className="w-full h-full object-cover" />
                               </div>
                             )}
                           </div>
@@ -876,37 +912,21 @@ const Index = () => {
                             <div className="flex items-center gap-2">
                               <span className="font-semibold text-white">{u.username}</span>
                               {u.is_verified && <Icon name="CheckCircle2" className="w-4 h-4 text-green-500" />}
-                              <Badge variant={u.role === 'admin' ? 'default' : 'secondary'} className={u.role === 'admin' ? 'bg-[#66c0f4] text-black' : ''}>
-                                {u.role}
-                              </Badge>
+                              <Badge variant={u.role === 'admin' ? 'default' : 'secondary'} className={u.role === 'admin' ? 'bg-[#66c0f4] text-black' : ''}>{u.role}</Badge>
                             </div>
                             <span className="text-sm text-gray-400">{u.email}</span>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="flex items-center gap-2">
-                            <Input
-                              type="number"
-                              defaultValue={u.balance}
-                              className="w-32 bg-[#32475c] border-[#2a475e] text-white"
-                              onBlur={(e) => handleUpdateBalance(u.id, parseFloat(e.target.value))}
-                            />
+                            <Input type="number" defaultValue={u.balance} className="w-32 bg-[#32475c] border-[#2a475e] text-white" onBlur={(e) => handleUpdateBalance(u.id, parseFloat(e.target.value))} />
                             <span className="text-sm text-gray-400">₽</span>
                           </div>
-                          <Button
-                            size="sm"
-                            variant={u.is_verified ? 'outline' : 'default'}
-                            onClick={() => handleVerifyUser(u.id, u.is_verified)}
-                            className={!u.is_verified ? 'bg-[#66c0f4] hover:bg-[#5ab1e6] text-black' : 'border-[#66c0f4] text-[#66c0f4]'}
-                          >
-                            {u.is_verified ? 'Снять ✓' : 'Верифицировать'}
+                          <Button size="sm" variant={u.is_verified ? 'outline' : 'default'} onClick={() => handleVerifyUser(u.id, u.is_verified)} className={!u.is_verified ? 'bg-[#66c0f4] hover:bg-[#5ab1e6] text-black' : 'border-[#66c0f4] text-[#66c0f4]'}>
+                            {u.is_verified ? t.admin.removeVerification : t.admin.verify}
                           </Button>
-                          <Button
-                            size="sm"
-                            variant={u.is_banned ? 'default' : 'destructive'}
-                            onClick={() => handleBanUser(u.id, u.is_banned || false)}
-                          >
-                            {u.is_banned ? 'Разбанить' : 'Забанить'}
+                          <Button size="sm" variant={u.is_banned ? 'default' : 'destructive'} onClick={() => handleBanUser(u.id, u.is_banned || false)}>
+                            {u.is_banned ? t.admin.unban : t.admin.ban}
                           </Button>
                         </div>
                       </div>
@@ -918,11 +938,11 @@ const Index = () => {
               <TabsContent value="moderation" className="space-y-4">
                 <Card className="bg-[#16202d] border-[#2a475e]">
                   <CardHeader>
-                    <CardTitle className="text-white">Игры на модерации</CardTitle>
+                    <CardTitle className="text-white">{t.admin.moderation}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {pendingGames.length === 0 ? (
-                      <p className="text-center text-gray-400 py-8">Нет игр на модерации</p>
+                      <p className="text-center text-gray-400 py-8">{t.admin.noPendingGames}</p>
                     ) : (
                       pendingGames.map((game) => (
                         <div key={game.id} className="border border-[#2a475e] rounded-lg p-4 space-y-3 bg-[#1b2838]">
@@ -935,12 +955,15 @@ const Index = () => {
                                 <Badge className="bg-[#66c0f4] text-black">{game.genre}</Badge>
                                 <Badge variant="outline" className="border-[#66c0f4] text-[#66c0f4]">{game.age_rating}</Badge>
                                 <Badge variant="secondary">{game.price} ₽</Badge>
+                                <Badge className={game.engine_type === 'gdevelop' ? 'bg-green-600' : 'bg-orange-600'}>
+                                  {game.engine_type === 'gdevelop' ? t.admin.gdevelop : t.admin.otherEngine}
+                                </Badge>
                               </div>
-                              <p className="text-sm text-gray-400">Email: {game.contact_email}</p>
+                              <p className="text-sm text-gray-400">{t.admin.contactEmail}: {game.contact_email}</p>
                               <Button size="sm" variant="outline" asChild className="mt-2 border-[#66c0f4] text-[#66c0f4]">
                                 <a href={game.file_url} download>
                                   <Icon name="Download" className="w-4 h-4 mr-2" />
-                                  Скачать .apk
+                                  {t.admin.downloadApk}
                                 </a>
                               </Button>
                             </div>
@@ -948,11 +971,11 @@ const Index = () => {
                           <div className="flex gap-3">
                             <Button onClick={() => handleApproveGame(game.id, 'approved')} className="flex-1 bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold">
                               <Icon name="Check" className="w-4 h-4 mr-2" />
-                              Одобрить
+                              {t.admin.approve}
                             </Button>
                             <Button onClick={() => handleApproveGame(game.id, 'rejected')} variant="destructive" className="flex-1">
                               <Icon name="X" className="w-4 h-4 mr-2" />
-                              Отклонить
+                              {t.admin.reject}
                             </Button>
                           </div>
                         </div>
@@ -965,34 +988,28 @@ const Index = () => {
               <TabsContent value="frames">
                 <Card className="bg-[#16202d] border-[#2a475e]">
                   <CardHeader>
-                    <CardTitle className="text-white">Создать новую рамку</CardTitle>
+                    <CardTitle className="text-white">{t.admin.createFrame}</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <form onSubmit={(e) => {
                       e.preventDefault();
                       const formData = new FormData(e.currentTarget);
-                      handleCreateFrame(
-                        formData.get('name') as string,
-                        formData.get('image_url') as string,
-                        parseFloat(formData.get('price') as string)
-                      );
+                      handleCreateFrame(formData.get('name') as string, formData.get('image_url') as string, parseFloat(formData.get('price') as string));
                       e.currentTarget.reset();
                     }} className="space-y-4">
                       <div className="space-y-2">
-                        <Label className="text-gray-300">Название рамки</Label>
+                        <Label className="text-gray-300">{t.admin.frameName}</Label>
                         <Input name="name" required className="bg-[#32475c] border-[#2a475e] text-white" />
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-gray-300">URL изображения</Label>
+                        <Label className="text-gray-300">{t.admin.frameImageUrl}</Label>
                         <Input name="image_url" required className="bg-[#32475c] border-[#2a475e] text-white" />
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-gray-300">Цена (₽)</Label>
+                        <Label className="text-gray-300">{t.admin.framePrice}</Label>
                         <Input name="price" type="number" required className="bg-[#32475c] border-[#2a475e] text-white" />
                       </div>
-                      <Button type="submit" className="w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold">
-                        Создать рамку
-                      </Button>
+                      <Button type="submit" className="w-full bg-[#66c0f4] hover:bg-[#5ab1e6] text-black font-semibold">{t.admin.createFrameButton}</Button>
                     </form>
                   </CardContent>
                 </Card>

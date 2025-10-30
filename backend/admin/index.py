@@ -56,7 +56,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 }
             
             elif action == 'pending_games':
-                cur.execute("SELECT id, title, description, genre, age_rating, price, logo_url, file_url, contact_email, created_by FROM games WHERE status = 'pending' ORDER BY created_at DESC")
+                cur.execute("SELECT id, title, description, genre, age_rating, price, logo_url, file_url, contact_email, created_by, engine_type FROM games WHERE status = 'pending' ORDER BY created_at DESC")
                 games = cur.fetchall()
                 
                 return {
@@ -73,7 +73,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                         'logo_url': g[6],
                         'file_url': g[7],
                         'contact_email': g[8],
-                        'created_by': g[9]
+                        'created_by': g[9],
+                        'engine_type': g[10]
                     } for g in games])
                 }
             

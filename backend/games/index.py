@@ -31,7 +31,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             params = event.get('queryStringParameters', {})
             status_filter = params.get('status', 'approved')
             
-            cur.execute("SELECT id, title, description, genre, age_rating, price, logo_url, file_url, status, created_by FROM games WHERE status = %s ORDER BY created_at DESC", (status_filter,))
+            cur.execute("SELECT id, title, description, genre, age_rating, price, logo_url, file_url, status, created_by, engine_type FROM games WHERE status = %s ORDER BY created_at DESC", (status_filter,))
             games = cur.fetchall()
             
             return {
@@ -48,7 +48,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'logo_url': g[6],
                     'file_url': g[7],
                     'status': g[8],
-                    'created_by': g[9]
+                    'created_by': g[9],
+                    'engine_type': g[10]
                 } for g in games])
             }
         
@@ -57,11 +58,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             action = body.get('action')
             
             if action == 'submit':
-                cur.execute("""INSERT INTO games (title, description, genre, age_rating, price, logo_url, file_url, contact_email, created_by) 
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                cur.execute("""INSERT INTO games (title, description, genre, age_rating, price, logo_url, file_url, contact_email, created_by, engine_type) 
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                            (body.get('title'), body.get('description'), body.get('genre'), 
                             body.get('age_rating'), body.get('price'), body.get('logo_url'), 
-                            body.get('file_url'), body.get('contact_email'), body.get('user_id')))
+                            body.get('file_url'), body.get('contact_email'), body.get('user_id'), body.get('engine_type', 'other')))
                 game_id = cur.fetchone()[0]
                 conn.commit()
                 

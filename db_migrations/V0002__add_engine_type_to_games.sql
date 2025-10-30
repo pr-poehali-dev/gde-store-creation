@@ -1,0 +1,1 @@
+ALTER TABLE games ADD COLUMN IF NOT EXISTS engine_type VARCHAR(50) DEFAULT 'other';
